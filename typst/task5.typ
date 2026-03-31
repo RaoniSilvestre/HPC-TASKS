@@ -7,9 +7,8 @@ as diretivas do `openmp` para explorar como melhorar uma atividade computacional
 
 Para ela, foi utilizado uma variável global `pi`, e variáveis locais `pi_` e `sign`.
 
-A lógica de paralelização consiste em calcular uma parte da sequência e acumular esse valor em pi\_, e ao 
-fim disso utilizar uma operação de soma da variável local `pi` e `pi_` de forma atômica para não gerar uma
-condição de corrida.
+A lógica de paralelização consiste em calcular uma parte da sequência por meio do `parallel for` e acumular esse valor em `pi\_`, e ao 
+fim disso utilizar uma operação de soma da variável local `pi` e `pi_` de forma atômica para não gerar uma condição de corrida.
 
 ```c
 #include <omp.h>
