@@ -1,93 +1,63 @@
+
+// Tarefa 5 : Números primos de 24 / 03 / 2026 às 00h00 a 31 / 03 /2026 às 23h59
+//  Implemente um programa em C que conte quantos números primos existem
+// entre 2 e um valor máximo n.Depois, paralelize o laço principal usando a
+// diretiva
+//
+// #pragma omp parallel for
+//
+// sem alterar a lógica original. compare o tempo de execução e os
+// resultados das versões sequencial e paralela. observe possíveis
+// diferenças no resultado e no desempenho, e reflita sobre os desafios
+// iniciais da programação paralela, como correção e distribuição de carga.
+
 #include <omp.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-long long iters = 100000000000;
+bool is_prime(int n) {
+  if (n == 2) {
+    return true;
+  }
+  if (n < 2 || n % 2 == 0) {
+    return false;
+  }
 
-int par_exec() {
-  double pi = 0;
+  int k = n / 2;
+
+  for (int i = 3; i < k; i++) {
+    if (n % i == 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+int size = 1e6;
+
+int main(void) {
+  int cnt = 0;
 
   double inicio, fim;
 
   inicio = omp_get_wtime();
 
-  // 4 é a quantidade de cores que eu tenho no Laptop
-  omp_set_num_threads(4);
-#pragma omp parallel shared(pi)
-  {
-    double pi_ = 0;
-    double sign = 1;
-// Só usando o omp parallel for dá uma condição de corrida desgraçada, o
-// valor fica todo quebrado.
-#pragma omp for
-    for (size_t i = 1; i < iters; i += 2) {
-      pi_ += (1 / (float)i) * sign;
-      sign = -sign;
-    }
-
+  omp_set_num_threads(12);
+#pragma omp parallel for
+  for (int i = 2; i < size; i++) {
+    if (is_prime(i)) {
 #pragma omp atomic
-    pi += pi_;
-  }
-
-  fim = omp_get_wtime();
-
-  pi = 4 * pi;
-
-  printf("---------------\n");
-  printf("PARALLEL EXEC\n");
-  printf("Iters: %lld ", iters);
-  printf("Elapsed wall time:  %f seconds\n", fim - inicio);
-  printf("Aprox: %f\n", pi);
-  printf("---------------\n");
-
-  return 0;
-}
-
-int seq_exec() {
-  double pi = 0;
-  double inicio, fim;
-
-  inicio = omp_get_wtime();
-
-  {
-    double pi_ = 0;
-    double sign = 1;
-    for (size_t i = 1; i < iters; i += 2) {
-      pi_ += (1 / (float)i) * sign;
-      sign = -sign;
+      cnt++;
     }
-
-    pi += pi_;
   }
 
   fim = omp_get_wtime();
 
-  pi = 4 * pi;
-
-  printf("---------------\n");
-  printf("SEQ EXEC\n");
-  printf("Iters: %lld ", iters);
+  printf("SAFE PARALLEL EXECUTION\n");
   printf("Elapsed wall time:  %f seconds\n", fim - inicio);
-  printf("Aprox: %f\n", pi);
-  printf("---------------\n");
+  printf("%d\n", cnt);
 
-  return 0;
+  return EXIT_SUCCESS;
 }
-
-int main() {
-  seq_exec();
-  par_exec();
-  return 0;
-}
-
-// ❯ clang -fopenmp tasks/task5.c -O3
-// ❯ ./a.out
-// ---------------
-// SEQ EXEC
-// Iters: 100000000000 Elapsed wall time:  51.507647 seconds
-// Aprox: 3.141593
-// ---------------
-// ---------------
-// PARALLEL EXEC
-// Iters: 100000000000 Elapsed wall time:  21.810869 seconds
-// Aprox: 3.141593
-// ---------------
