@@ -65,11 +65,6 @@ double simular_omp(double *u, double *un, const char *tipo_schedule,
   double inicio = omp_get_wtime();
   for (int t = 0; t < NT; t++) {
 
-    // A diretiva OpenMP é ajustada via código para simular os diferentes
-    // comportamentos Nota: Em código de produção real, você faria build de
-    // binários diferentes ou macros. Aqui mapearemos as principais combinações
-    // para fins de teste.
-
     if (usar_collapse) {
 #pragma omp parallel for collapse(2) schedule(runtime)
       for (int i = 1; i < NX - 1; i++) {
@@ -130,27 +125,20 @@ int main() {
   double t_serial = simular_serial(u, un);
   printf("Tempo Serial: \t\t\t%.4f segundos\n", t_serial);
 
-  // Configurando OpenMP via variável de ambiente para testar schedules
-  // diferentes
-  // 2. OpenMP Static (sem collapse)
   omp_set_schedule(omp_sched_static, 0);
   inicializar_campo(u, 1);
   double t_static = simular_omp(u, un, "static", 0);
   printf("OpenMP schedule(static): \t%.4f segundos\n", t_static);
 
-  // 3. OpenMP Dynamic (sem collapse)
   omp_set_schedule(omp_sched_dynamic, 16); // Chunk de 16
   inicializar_campo(u, 1);
   double t_dynamic = simular_omp(u, un, "dynamic, 16", 0);
   printf("OpenMP schedule(dynamic,16):\t%.4f segundos\n", t_dynamic);
 
-  // 4. OpenMP Static com Collapse(2)
   omp_set_schedule(omp_sched_static, 0);
   inicializar_campo(u, 1);
   double t_collapse = simular_omp(u, un, "static", 1);
   printf("OpenMP static + collapse(2): \t%.4f segundos\n", t_collapse);
 
-  free(u);
-  free(un);
   return 0;
 }
