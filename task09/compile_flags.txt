@@ -1,2 +1,0 @@
--fopenmp
--I/usr/lib/clang/22/include

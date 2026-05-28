@@ -5,6 +5,8 @@
     header: align(right, text(8pt, gray)[#titulo]),
   )
 
+  set par(justify: true)
+
   show raw.where(block: true): it => {
     block(
       width: 100%,

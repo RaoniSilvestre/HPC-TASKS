@@ -18,7 +18,7 @@ int main() {
       for (int i = 0; i < N; i++) {
 
         int r = rand_r(&seed);
-#pragma omp task firstprivate(i, seed) shared(l1, l2)
+#pragma omp task firstprivate(i) shared(l1, l2, seed)
         {
           if (r % 2 == 0) {
 #pragma omp critical(l1_crit)
