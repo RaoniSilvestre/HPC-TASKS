@@ -1,144 +1,97 @@
-#include <math.h>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NX 1000 // Tamanho da malha em X
-#define NY 1000 // Tamanho da malha em Y
-#define NT 2000 // Número de passos de tempo
-#define NU 0.05 // Viscosidade cinemática
-#define DX 0.1  // Resolução espacial X
-#define DY 0.1  // Resolução espacial Y
-#define DT 0.04 // Passo de tempo (deve respeitar estabilidade de Courant)
+#define NX 64
+#define NY 64
+#define NT 5000
+#define DX 0.1f
+#define DY 0.1f
+#define DT 0.001f
+#define VISC 0.1f
 
-// Função para inicializar o campo (estável ou com perturbação)
-void inicializar_campo(double *u, int com_perturbacao) {
-  for (int i = 0; i < NX; i++) {
-    for (int j = 0; j < NY; j++) {
-      u[i * NY + j] = 0.0; // Fluido inicialmente parado (estável)
+typedef struct {
+  int nx;
+  int ny;
+  float **data;
+} Grid2D;
+
+Grid2D alocar_grid(int nx, int ny, float valor_base) {
+  Grid2D grid = {
+      .nx = nx,
+      .ny = ny,
+      .data = (float **)malloc(nx * sizeof(float *)),
+  };
+
+  for (int i = 0; i < nx; i++) {
+    grid.data[i] = (float *)malloc(ny * sizeof(float));
+  }
+
+  for (int i = 0; i < grid.nx; i++) {
+    for (int j = 0; j < grid.ny; j++) {
+      grid.data[i][j] = valor_base;
+    }
+  }
+  // Perturbação central
+  int cx = grid.nx / 2, cy = grid.ny / 2, r = 4;
+  for (int i = cx - r; i <= cx + r; i++) {
+    for (int j = cy - r; j <= cy + r; j++) {
+      grid.data[i][j] = 10.0f;
     }
   }
 
-  // Insere uma pequena perturbação no centro do domínio
-  if (com_perturbacao) {
-    int cx = NX / 2;
-    int cy = NY / 2;
-    int raio = 20;
-    for (int i = cx - raio; i < cx + raio; i++) {
-      for (int j = cy - raio; j < cy + raio; j++) {
-        if ((i - cx) * (i - cx) + (j - cy) * (j - cy) < raio * raio) {
-          u[i * NY + j] = 1.0; // Pico de velocidade
-        }
-      }
+  return grid;
+}
+
+void calcular_proximo_passo(const Grid2D u_current, const Grid2D u_next,
+                            const float nu, const float dt, const float dx,
+                            const float dy) {
+  const int nx = u_current.nx;
+  const int ny = u_current.ny;
+  const float idx2 = 1.0f / (dx * dx);
+  const float idy2 = 1.0f / (dy * dy);
+
+#pragma omp parallel for collapse(2) schedule(static, 16)
+  for (int i = 1; i < nx - 1; i++) {
+    for (int j = 1; j < ny - 1; j++) {
+      const float laplaciano =
+          (u_current.data[i + 1][j] - 2.0f * u_current.data[i][j] +
+           u_current.data[i - 1][j]) *
+              idx2 +
+          (u_current.data[i][j + 1] - 2.0f * u_current.data[i][j] +
+           u_current.data[i][j - 1]) *
+              idy2;
+
+      u_next.data[i][j] = u_current.data[i][j] + dt * nu * laplaciano;
     }
   }
 }
 
-// Simulação sem paralelismo (Referência)
-double simular_serial(double *u, double *un) {
-  double inicio = omp_get_wtime();
+int main(void) {
+  Grid2D u_velA = alocar_grid(NX, NY, 1.0f);
+  Grid2D u_velB = alocar_grid(NX, NY, 1.0f);
+
+  Grid2D u_atual = u_velA;
+  Grid2D u_proximo = u_velB;
+
+  printf("Velocidade inicial no centro: %.2f\n", u_atual.data[NX / 2][NY / 2]);
+
+  double tempo_inicio = omp_get_wtime();
+
   for (int t = 0; t < NT; t++) {
-    for (int i = 1; i < NX - 1; i++) {
-      for (int j = 1; j < NY - 1; j++) {
-        double d2udx2 =
-            (u[(i + 1) * NY + j] - 2.0 * u[i * NY + j] + u[(i - 1) * NY + j]) /
-            (DX * DX);
-        double d2udy2 =
-            (u[i * NY + j + 1] - 2.0 * u[i * NY + j] + u[i * NY + j - 1]) /
-            (DY * DY);
-        un[i * NY + j] = u[i * NY + j] + NU * DT * (d2udx2 + d2udy2);
-      }
-    }
-    // Atualiza a malha
-    for (int i = 1; i < NX - 1; i++) {
-      for (int j = 1; j < NY - 1; j++) {
-        u[i * NY + j] = un[i * NY + j];
-      }
-    }
+
+    calcular_proximo_passo(u_atual, u_proximo, VISC, DT, DX, DY);
+
+    Grid2D temp = u_atual;
+    u_atual = u_proximo;
+    u_proximo = temp;
   }
-  return omp_get_wtime() - inicio;
-}
 
-// Simulação com OpenMP testando clauses
-double simular_omp(double *u, double *un, const char *tipo_schedule,
-                   int usar_collapse) {
-  double inicio = omp_get_wtime();
-  for (int t = 0; t < NT; t++) {
+  double tempo_fim = omp_get_wtime();
 
-    if (usar_collapse) {
-#pragma omp parallel for collapse(2) schedule(runtime)
-      for (int i = 1; i < NX - 1; i++) {
-        for (int j = 1; j < NY - 1; j++) {
-          double d2udx2 = (u[(i + 1) * NY + j] - 2.0 * u[i * NY + j] +
-                           u[(i - 1) * NY + j]) /
-                          (DX * DX);
-          double d2udy2 =
-              (u[i * NY + j + 1] - 2.0 * u[i * NY + j] + u[i * NY + j - 1]) /
-              (DY * DY);
-          un[i * NY + j] = u[i * NY + j] + NU * DT * (d2udx2 + d2udy2);
-        }
-      }
-    } else {
-#pragma omp parallel for schedule(runtime)
-      for (int i = 1; i < NX - 1; i++) {
-        for (int j = 1; j < NY - 1; j++) {
-          double d2udx2 = (u[(i + 1) * NY + j] - 2.0 * u[i * NY + j] +
-                           u[(i - 1) * NY + j]) /
-                          (DX * DX);
-          double d2udy2 =
-              (u[i * NY + j + 1] - 2.0 * u[i * NY + j] + u[i * NY + j - 1]) /
-              (DY * DY);
-          un[i * NY + j] = u[i * NY + j] + NU * DT * (d2udx2 + d2udy2);
-        }
-      }
-    }
-
-// Atualização paralela
-#pragma omp parallel for schedule(runtime)
-    for (int i = 1; i < NX - 1; i++) {
-      for (int j = 1; j < NY - 1; j++) {
-        u[i * NY + j] = un[i * NY + j];
-      }
-    }
-  }
-  return omp_get_wtime() - inicio;
-}
-
-int main() {
-  double *u = (double *)malloc(NX * NY * sizeof(double));
-  double *un = (double *)malloc(NX * NY * sizeof(double));
-
-  printf("--- Validacao Inicial ---\n");
-  inicializar_campo(u, 0); // Sem perturbação
-  printf("Fluido inicializado em repouso absoluto.\n");
-  simular_serial(u, un);
-  printf(
-      "Apos simular %d iteracoes, valor max no centro: %f (Esperado: 0.0)\n\n",
-      NT, u[(NX / 2) * NY + (NY / 2)]);
-
-  printf("--- Testes de Desempenho OpenMP ---\n");
-  printf("Malha: %dx%d | Iteracoes: %d | Threads: %d\n\n", NX, NY, NT,
-         omp_get_max_threads());
-
-  // 1. Serial
-  inicializar_campo(u, 1);
-  double t_serial = simular_serial(u, un);
-  printf("Tempo Serial: \t\t\t%.4f segundos\n", t_serial);
-
-  omp_set_schedule(omp_sched_static, 0);
-  inicializar_campo(u, 1);
-  double t_static = simular_omp(u, un, "static", 0);
-  printf("OpenMP schedule(static): \t%.4f segundos\n", t_static);
-
-  omp_set_schedule(omp_sched_dynamic, 16); // Chunk de 16
-  inicializar_campo(u, 1);
-  double t_dynamic = simular_omp(u, un, "dynamic, 16", 0);
-  printf("OpenMP schedule(dynamic,16):\t%.4f segundos\n", t_dynamic);
-
-  omp_set_schedule(omp_sched_static, 0);
-  inicializar_campo(u, 1);
-  double t_collapse = simular_omp(u, un, "static", 1);
-  printf("OpenMP static + collapse(2): \t%.4f segundos\n", t_collapse);
+  printf("Velocidade final no centro após %d passos: %f\n", NT,
+         u_atual.data[NX / 2][NY / 2]);
+  printf("Tempo total gasto: %f segundos\n", tempo_fim - tempo_inicio);
 
   return 0;
 }
