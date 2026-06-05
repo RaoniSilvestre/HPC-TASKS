@@ -1,3 +1,122 @@
+#import "../template.typ": projeto
+
+#set heading(numbering: "I. ")
+#show: projeto.with(titulo: "Comunicação MPI")
+
+#import "@preview/cetz:0.5.2"
+#import "@preview/cetz-plot:0.1.4": plot
+
+
+= Metodologia
+
+O experimento consistiu em  utilizar um programa que para cada tipo de comunicação, são executadas mil iterações de comunicação para cada tamanho de carga, que varia de 8 Bytes até 512KB.
+
+Nesse contexto, foram testados os seguintes métodos de comunicação:
+
+- `MPI_Send`
+- `MPI_Ssend`
+- `MPI_Bsend`
+- `MPI_Rsend`
+
+= Resultados
+
+#let mpi-send = (
+  (3, 25.45),
+  (5, 74.52),
+  (7, 283.34),
+  (9, 1112.24),
+  (11, 2933.73),
+  (13, 4819.25),
+  (15, 7193.64),
+  (17, 11118.27),
+  (19, 13144.85),
+)
+#let mpi-ssend = (
+  (3, 14.61),
+  (5, 42.61),
+  (7, 197.86),
+  (9, 675.23),
+  (11, 2285.64),
+  (13, 4476.81),
+  (15, 7007.91),
+  (17, 11149.41),
+  (19, 12782.66),
+)
+#let mpi-bsend = (
+  (3, 21.37),
+  (5, 63.23),
+  (7, 260.24),
+  (9, 1002.08),
+  (11, 2335.39),
+  (13, 4349.94),
+  (15, 5675.68),
+  (17, 7854.03),
+  (19, 8187.26),
+)
+#let mpi-rsend = (
+  (3, 17.55),
+  (5, 51.80),
+  (7, 138.70),
+  (9, 894.14),
+  (11, 2089.48),
+  (13, 4414.35),
+  (15, 6630.12),
+  (17, 10287.45),
+  (19, 12082.61),
+)
+
+#let x-ticks = (
+  (3, [8B]),
+  (5, [32B]),
+  (7, [128B]),
+  (9, [512B]),
+  (11, [2K]),
+  (13, [8K]),
+  (15, [32K]),
+  (17, [128K]),
+  (19, [512K]),
+)
+
+#let to-log10(dados) = dados.map(p => (p.at(0), calc.log(p.at(1), base: 10)))
+#let y-ticks = (
+  (1, [10]),
+  (2, [100]),
+  (3, [1.000]),
+  (4, [10.000]),
+)
+
+#align(center)[
+  #cetz.canvas({
+    plot.plot(
+      size: (14, 8),
+      x-label: "Tamanho da Mensagem (Log2 de Bytes)",
+      y-label: "Largura de Banda (MB/s)",
+      legend: "inner-north-west",
+      x-ticks: x-ticks,
+      x-tick-step: none,
+      y-ticks: y-ticks,
+      y-tick-step: none,
+      {
+        plot.add(to-log10(mpi-send), label: "MPI_Send", style: (stroke: blue + 1.5pt), mark: "square")
+        plot.add(to-log10(mpi-ssend), label: "MPI_Ssend", style: (stroke: orange + 1.5pt), mark: "square")
+        plot.add(to-log10(mpi-bsend), label: "MPI_Bsend", style: (stroke: green + 1.5pt), mark: "triangle")
+        plot.add(to-log10(mpi-rsend), label: "MPI_Rsend", style: (stroke: red + 1.5pt), mark: "diamond")
+      },
+    )
+  })
+]
+
+= Análise
+
+Visto que esse programa roda localmente em uma única máquina, não envolveu o uso de uma rede externa que faça com que os processos se comuniquem. Isso gerou resultados interessantes
+onde foi possível transitar até 13Gb/s entre os dois processos. Isso não seria esperado caso fosse utilizado uma rede Gigabit por exemplo. A comunicação no último caso seria limitada
+pela própria capacidade de comunicação da infraestrutura de rede.
+
+No mais, foi observado que o método `MPI_Send` foi o vencedor absoluto. Isso pode ser explicado pois a implementação do OpenMPI que vai decidir se para aquele caso ele vai utilizar um buffer ou não, e pelo visto ele conseguiu decidir bem em todos os casos.
+
+= Anexo
+
+```c
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,3 +235,4 @@ int main(int argc, char **argv) {
   MPI_Finalize();
   return 0;
 }
+```

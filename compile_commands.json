@@ -1,0 +1,12 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-I/usr/include/openmpi-x86_64",
+      "main.c"
+    ],
+    "directory": "/home/raoni/cave/programming/hpc/task14",
+    "file": "/home/raoni/cave/programming/hpc/task14/main.c"
+  }
+]

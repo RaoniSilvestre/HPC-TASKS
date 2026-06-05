@@ -1,0 +1,5 @@
+places,bind,tipo_execucao,nx,ny,passos_tempo,tempo_segundos,threads
+cores,false,8192,8192,5000,8.025726,128
+cores,true,8192,8192,5000,9.834831,128
+threads,false,8192,8192,5000,16.332611,128
+threads,true,8192,8192,5000,34.312709,128
