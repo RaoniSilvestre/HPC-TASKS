@@ -1,0 +1,16 @@
+versao,processos,passos,bar_size,tempo(s)
+isend_irecv_test_64,2,500,1e8,43
+isend_irecv_test_64,16,500,1e8,18
+isend_irecv_test_64,32,500,1e8,14
+isend_irecv_test_64,128,500,1e8,3
+isend_irecv,2,500,1e8,27
+isend_irecv,16,500,1e8,14
+isend_irecv,32,500,1e8,15
+isend_irecv,128,500,1e8,3
+isend_irecv,256,500,1e8,0.7
+isend_irecv,512,500,1e8,0.3
+send_recv,2,500,1e8,26
+send_recv,16,500,1e8,17
+send_recv,32,500,1e8,14
+send_recv,128,500,1e8,3
+sequencial,1,500,1e8,36
