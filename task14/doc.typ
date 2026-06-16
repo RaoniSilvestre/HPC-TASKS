@@ -114,6 +114,7 @@ pela própria capacidade de comunicação da infraestrutura de rede.
 
 No mais, foi observado que o método `MPI_Send` foi o vencedor absoluto. Isso pode ser explicado pois a implementação do OpenMPI que vai decidir se para aquele caso ele vai utilizar um buffer ou não, e pelo visto ele conseguiu decidir bem em todos os casos.
 
+
 = Anexo
 
 ```c
@@ -136,6 +137,7 @@ void executar_ping_pong(int rank, const char *metodo, int tamanho_maximo,
     bsend_buffer = (char *)malloc(tamanho_buffer * sizeof(char));
     MPI_Buffer_attach(bsend_buffer, tamanho_buffer);
   }
+
 
   for (int tamanho = 8; tamanho <= tamanho_maximo; tamanho *= 4) {
     char *mensagem = (char *)malloc(tamanho * sizeof(char));
