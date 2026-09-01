@@ -2,9 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NX 5096
-#define NY 5096
-#define NT 5000
+#define NX 8192
+#define NY 8192
+#define NT 500
 #define DX 0.1f
 #define DY 0.1f
 #define DT 0.001f
@@ -90,14 +90,14 @@ void salvar_metricas_csv(const char *nome_arquivo, const char *tipo_execucao,
   fclose(f);
 }
 
-int main(void) {
-  const char *label_execucao = "sequencial";
+int main() {
+  const char *label_execucao = "paralelo4";
   const char *nome_csv = "resultados.csv";
 
   Grid2D u_velA = alocar_grid(NX, NY, 1.0f);
   Grid2D u_velB = alocar_grid(NX, NY, 1.0f);
 
-  omp_set_num_threads(2);
+  omp_set_num_threads(4);
 
   Grid2D u_atual = u_velA;
   Grid2D u_proximo = u_velB;

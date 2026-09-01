@@ -11,7 +11,7 @@ void apply_one_step(float *t1, float *t2, int size) {
   t2[size - 1] = t2[size - 2];
 }
 
-double simulate_send_recv(int steps, int bar_size) {
+double simulate_seq(int steps, int bar_size) {
   // Inicialização também não entra no tempo de execução.
   float *t1 = init(bar_size, 0);
   float *t2 = init(bar_size, 0);
@@ -42,7 +42,7 @@ int main() {
   for (int i = 0; i < 6; i++) {
     int size = sizes[i];
 
-    double elapsed = simulate_send_recv(steps, size);
+    double elapsed = simulate_seq(steps, size);
 
     printf(
         "Processamento finalizado de %d iterações... tempo de execução: %f\n",

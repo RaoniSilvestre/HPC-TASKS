@@ -9,7 +9,7 @@
 
 = Metodologia
 
-O experimento consistiu em  utilizar um programa que para cada tipo de comunicação, são executadas mil iterações de comunicação para cada tamanho de carga, que varia de 8 Bytes até 512KB.
+O experimento consistiu em  utilizar um programa que para cada tipo de comunicação, são executadas cem iterações de comunicação para cada tamanho de carga, que varia de 8 Bytes até 32MB.
 
 Nesse contexto, foram testados os seguintes métodos de comunicação:
 
@@ -21,48 +21,60 @@ Nesse contexto, foram testados os seguintes métodos de comunicação:
 = Resultados
 
 #let mpi-send = (
-  (3, 25.45),
-  (5, 74.52),
-  (7, 283.34),
-  (9, 1112.24),
-  (11, 2933.73),
-  (13, 4819.25),
-  (15, 7193.64),
-  (17, 11118.27),
-  (19, 13144.85),
+  (3, 17.26),
+  (5, 59.04),
+  (7, 231.03),
+  (9, 895.40),
+  (11, 1016.95),
+  (13, 4968.65),
+  (15, 7241.63),
+  (17, 11938.09),
+  (19, 12145.17),
+  (21, 10525.79),
+  (23, 7353.10),
+  (25, 6775.65),
 )
 #let mpi-ssend = (
-  (3, 14.61),
-  (5, 42.61),
-  (7, 197.86),
-  (9, 675.23),
-  (11, 2285.64),
-  (13, 4476.81),
-  (15, 7007.91),
-  (17, 11149.41),
-  (19, 12782.66),
+  (3, 10.48),
+  (5, 45.75),
+  (7, 181.45),
+  (9, 693.05),
+  (11, 1980.61),
+  (13, 4913.06),
+  (15, 7099.30),
+  (17, 11987.87),
+  (19, 13251.97),
+  (21, 9947.50),
+  (23, 7622.90),
+  (25, 6392.94),
 )
 #let mpi-bsend = (
-  (3, 21.37),
-  (5, 63.23),
-  (7, 260.24),
-  (9, 1002.08),
-  (11, 2335.39),
-  (13, 4349.94),
-  (15, 5675.68),
-  (17, 7854.03),
-  (19, 8187.26),
+  (3, 11.43),
+  (5, 31.29),
+  (7, 121.14),
+  (9, 380.02),
+  (11, 1235.01),
+  (13, 2979.39),
+  (15, 4734.82),
+  (17, 6291.60),
+  (19, 7502.15),
+  (21, 5502.82),
+  (23, 3843.56),
+  (25, 3813.06),
 )
 #let mpi-rsend = (
-  (3, 17.55),
-  (5, 51.80),
-  (7, 138.70),
-  (9, 894.14),
-  (11, 2089.48),
-  (13, 4414.35),
-  (15, 6630.12),
-  (17, 10287.45),
-  (19, 12082.61),
+  (3, 17.56),
+  (5, 49.75),
+  (7, 208.06),
+  (9, 790.21),
+  (11, 2503.69),
+  (13, 5177.46),
+  (15, 7365.32),
+  (17, 10981.99),
+  (19, 12622.67),
+  (21, 12791.43),
+  (23, 6831.37),
+  (25, 6972.46),
 )
 
 #let x-ticks = (
@@ -75,6 +87,9 @@ Nesse contexto, foram testados os seguintes métodos de comunicação:
   (15, [32K]),
   (17, [128K]),
   (19, [512K]),
+  (21, [2M]),
+  (23, [8M]),
+  (25, [32M]),
 )
 
 #let to-log10(dados) = dados.map(p => (p.at(0), calc.log(p.at(1), base: 10)))
@@ -83,6 +98,7 @@ Nesse contexto, foram testados os seguintes métodos de comunicação:
   (2, [100]),
   (3, [1.000]),
   (4, [10.000]),
+  (5, [100.000]),
 )
 
 #align(center)[
@@ -112,7 +128,8 @@ Visto que esse programa roda localmente em uma única máquina, não envolveu o 
 onde foi possível transitar até 13Gb/s entre os dois processos. Isso não seria esperado caso fosse utilizado uma rede Gigabit por exemplo. A comunicação no último caso seria limitada
 pela própria capacidade de comunicação da infraestrutura de rede.
 
-No mais, foi observado que o método `MPI_Send` foi o vencedor absoluto. Isso pode ser explicado pois a implementação do OpenMPI que vai decidir se para aquele caso ele vai utilizar um buffer ou não, e pelo visto ele conseguiu decidir bem em todos os casos.
+No mais, foi observado que o método `MPI_Rsend` foi o vencedor geral. Isso pode ser explicado pelo fato de que esse método assume que já existe alguem escutando a mensagem e também
+não aloca buffers intermediários. Acaba sendo um método mais perigoso mas também é mais eficiente.
 
 
 = Anexo
@@ -137,7 +154,6 @@ void executar_ping_pong(int rank, const char *metodo, int tamanho_maximo,
     bsend_buffer = (char *)malloc(tamanho_buffer * sizeof(char));
     MPI_Buffer_attach(bsend_buffer, tamanho_buffer);
   }
-
 
   for (int tamanho = 8; tamanho <= tamanho_maximo; tamanho *= 4) {
     char *mensagem = (char *)malloc(tamanho * sizeof(char));
@@ -222,12 +238,11 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Erro ao criar o arquivo CSV.\n");
       MPI_Abort(MPI_COMM_WORLD, 1);
     }
-    /* Escreve o cabeçalho do CSV */
     fprintf(arquivo_csv, "Metodo,Tamanho_Bytes,Tempo_Segundos,Banda_MBs\n");
   }
 
-  const int TAMANHO_MAXIMO = 1048576;
-  const int ITERACOES = 10000;
+  const int TAMANHO_MAXIMO = 1e8;
+  const int ITERACOES = 100;
 
   executar_ping_pong(rank, "MPI_Send", TAMANHO_MAXIMO, ITERACOES, arquivo_csv);
   executar_ping_pong(rank, "MPI_Ssend", TAMANHO_MAXIMO, ITERACOES, arquivo_csv);

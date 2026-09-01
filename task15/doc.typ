@@ -22,7 +22,7 @@ Como baseline, foi implementada uma versão sequencial. Ela se resume em:
 3. Inverta os vetores
 
 ```c
-void simulate_send_recv(int steps, int bar_size) {
+void simulate_seq(int steps, int bar_size) {
   float *t1 = init(bar_size, 0);
   float *t2 = init(bar_size, 0);
 
@@ -36,7 +36,7 @@ void simulate_send_recv(int steps, int bar_size) {
 }
 ```
 
-Devido a implementação ser pensada de forma sequencial. Não adianta aumentar a quantidade de processos. Dessa forma, foi testado apenas com 1 processo.
+Por ser uma implementação puramente sequencial, não há ganho de desempenho ao aumentar o número de processos. Dessa forma, foi testado apenas com 1 processo.
 
 == Utilização de dois vetores
 
@@ -101,7 +101,7 @@ até que a transferência de dados na rede seja validada, uma abordagem ingênua
 um deadlock. Nesse cenário, o programa travaria por completo, pois todos os processos ficariam aguardando indefinidamente por um receptor que também estaria
 bloqueado tentando enviar.
 
-Para garantir que o fluxo de dados ocorra de maneira segura, a solução adotada separa os processos pares e impares. A comunicação é dividida em duas
+Para garantir que o fluxo de dados ocorra de maneira segura, a solução adotada separa os processos pares e ímpares. A comunicação é dividida em duas
 lógicas distintas, baseadas na paridade do identificador (rank) de cada processo:
 
 - *Processos Pares:* Iniciam o ciclo executando as operações de envio (MPI_Send) de suas respectivas bordas. Apenas após a conclusão dessa etapa, eles realizam as chamadas de recebimento (MPI_Recv) para obter os dados dos vizinhos.
@@ -145,7 +145,7 @@ void communicate(int rank, int esq, int dir, float *bar, int bar_size) {
     if (dir != MPI_PROC_NULL) {
       // Receber o que é processado pelo "vizinho da direita"
       MPI_Recv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 2, MPI_COMM_WORLD,
-               MPI_STATUSES_IGNORE);
+               MPI_STATUS_IGNORE);
       // Envia o último que consigo processar
       MPI_Send(&bar[bar_size], 1, MPI_FLOAT, dir, 3, MPI_COMM_WORLD);
     }
@@ -225,22 +225,32 @@ Como visto na análise de resultados anterior, essa técnica exige um ajuste fin
 da rede muito baixa, o tempo gasto checando repetidamente o MPI_Testall acaba gerando um overhead que pode ser superior ao ganho da sobreposição, afetando o desempenho
 (como ocorreu no cenário de apenas 2 processos).
 
-== Resultados Coletados
+```c
+void communicate(int rank, int esq, int dir, float *bar, int bar_size,
+                 MPI_Request *reqs) {
+  int req_count = 0;
 
-A tabela abaixo organiza o tempo de execução (em segundos) variando o número de processos (threads MPI) de 1 a 512, conforme dados obtidos na experimentação.
+  if (esq != MPI_PROC_NULL) {
+    MPI_Irecv(&bar[0], 1, MPI_FLOAT, esq, 0, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+    MPI_Isend(&bar[1], 1, MPI_FLOAT, esq, 1, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
 
-#align(center)[
-  #table(
-    columns: (auto, auto, auto),
-    inset: 6pt,
-    align: (left, right, right),
-    [*Versão*], [*Processos*], [*Tempo (s)*],
-    [Sequencial], [1], [36],
-    [Send/Recv], [128], [3],
-    [Isend/Irecv], [128], [3],
-    [Isend/Irecv+Test], [128], [3],
-  )
-]
+  if (dir != MPI_PROC_NULL) {
+    MPI_Irecv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 1, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+    MPI_Isend(&bar[bar_size], 1, MPI_FLOAT, dir, 0, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+
+  return req_count;
+}
+```
+
+= Resultados Coletados
+
+O gráfico abaixo organiza o tempo de execução (em segundos) variando o número de processos (threads MPI) de 1 a 512, conforme dados obtidos na experimentação.
 
 #align(center)[
   #cetz.canvas({
@@ -275,41 +285,504 @@ A tabela abaixo organiza o tempo de execução (em segundos) variando o número 
   })
 ]
 
-== Comparativo: Sequencial vs. Versões de 128 Processos
+= Anexo
 
-Abaixo temos um gráfico comparando diretamente a versão de núcleo único (sequencial) em contraste com o desempenho de 128 processos nas diferentes estratégias MPI. A barra vermelha representa a proporção máxima do tempo do algoritmo sequencial.
+== Versão sequêncial
 
-#let bar(width, color) = box(
-  width: width,
-  height: 14pt,
-  fill: color,
-  baseline: 20%,
-  radius: 2pt,
-)
+```
+#include "mpi.h"
+#include "util.c"
+#include <stdio.h>
+#include <stdlib.h>
 
-#align(center)[
-  #box(
-    stroke: 0.5pt + luma(200),
-    inset: 15pt,
-    radius: 4pt,
-    grid(
-      columns: (130pt, 220pt, 30pt),
-      gutter: 12pt,
-      align: (right, left, left),
-      [*Sequencial (1 proc)*], bar(200pt, rgb("d9534f")), [*36.0s*],
-      [*Send/Recv (128)*], bar(16.6pt, rgb("5bc0de")), [*3.0s*],
-      [*Isend/Irecv (128)*], bar(16.6pt, rgb("0275d8")), [*3.0s*],
-      [*Isend/Irecv+Test (128)*], bar(16.6pt, rgb("5cb85c")), [*3.0s*],
-    ),
-  )
-]
+void apply_one_step(float *t1, float *t2, int size) {
+  for (int i = 1; i < size - 1; i++) {
+    t2[i] = atualizar_ponto(t1, i);
+  }
+  t2[0] = t2[1];
+  t2[size - 1] = t2[size - 2];
+}
 
-== 4. Discussão e Ganhos com Sobreposição (Overlap)
+double simulate_seq(int steps, int bar_size) {
+  // Inicialização também não entra no tempo de execução.
+  float *t1 = init(bar_size, 0);
+  float *t2 = init(bar_size, 0);
 
-A análise dos tempos obtidos demonstra uma capacidade excelente de aceleração (speedup) com o uso de MPI dividindo o domínio 1D da barra.
+  // Como vou compilar com o mpicc de qualquer modo, aproveito pra usar a função
+  // dele.
+  double start = MPI_Wtime();
 
-- *Desempenho Geral:* Todas as três implementações escalaram incrivelmente bem para 128 processos, caindo de 36 segundos para 3 segundos ($12times$ mais rápido). A escalabilidade contínua pode ser vista na versão Isend/Irecv que atinge notáveis 0.3 segundos em 512 processos.
-- *Sobreposição de Comunicação e Computação:* Teoricamente, o uso do `MPI_Test` permite que a CPU trabalhe nos pontos internos da barra simulada enquanto aguarda que o hardware de rede termine a cópia das células de borda. No entanto, os dados mostram que com 128 processos, as 3 versões finalizaram em exatos 3.0s.
-- *Conclusão sobre o Test:* Para o arranjo de processadores, rede, e malha de tamanho $10^8$ analisados, a latência já era mínima perante a computação (ou a transferência ocorreu de forma quase instantânea na infraestrutura usada). Além disso, há um "overhead" em usar estruturas de teste assíncrono. Isso fica evidente nos testes com apenas 2 processos, onde a abordagem `Test` demorou 43 segundos (pior que a sequencial de 36s), pois ficar checando ativamente (`polling`) roubou ciclos de CPU que seriam essenciais para calcular um volume muito massivo de pontos por processo.
+  for (int j = 0; j < steps; j++) {
+    apply_one_step(t1, t2, bar_size);
+    swap(&t1, &t2);
+  }
 
-Portanto, o ganho da sobreposição de comunicação se torna expressivo primariamente quando o cluster possui uma latência de rede mais engasgada e há um balanço perfeito entre a computação da zona interior e o tempo da transferência das bordas fantasma (ghost cells).
+  double elapsed = MPI_Wtime() - start;
+
+  // Liberação de memória não entra no tempo de execução.
+  free(t1);
+  free(t2);
+
+  return elapsed;
+}
+
+int main() {
+  int sizes[6] = {1e2, 1e4, 1e5, 1e6, 1e7, 1e8};
+
+  int steps = 500;
+
+  for (int i = 0; i < 6; i++) {
+    int size = sizes[i];
+
+    double elapsed = simulate_seq(steps, size);
+
+    printf(
+        "Processamento finalizado de %d iterações... tempo de execução: %f\n",
+        size, elapsed);
+  }
+}
+```
+
+== Versão com send e recv
+
+```c
+#include "mpi.h"
+#include "util.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+void apply_one_step(float *t1, float *t2, int size) {
+  for (int i = 1; i <= size; i++) {
+    t2[i] = atualizar_ponto(t1, i);
+  }
+}
+
+void communicate(int rank, int esq, int dir, float *bar, int bar_size) {
+  // Os pares enviam primeiro e recebem depois
+  if (rank % 2 == 0) {
+    if (dir != MPI_PROC_NULL) {
+      // Envia o último que consigo processar
+      MPI_Send(&bar[bar_size], 1, MPI_FLOAT, dir, 0, MPI_COMM_WORLD);
+      // Receber o que é processado pelo "vizinho da direita"
+      MPI_Recv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 1, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+    }
+
+    if (esq != MPI_PROC_NULL) {
+      // Envia o primeiro que consegue processar
+      MPI_Send(&bar[1], 1, MPI_FLOAT, esq, 2, MPI_COMM_WORLD);
+      // Recebe o que é processado pelo "vizinho da esquerda"
+      MPI_Recv(&bar[0], 1, MPI_FLOAT, esq, 3, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+    }
+  }
+  // Os impares recebem primeiro e enviam depois.
+  else {
+    if (esq != MPI_PROC_NULL) {
+      // Recebe o que é processado pelo "vizinho da esquerda"
+      MPI_Recv(&bar[0], 1, MPI_FLOAT, esq, 0, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+      // Envia o primeiro que consegue processar
+      MPI_Send(&bar[1], 1, MPI_FLOAT, esq, 1, MPI_COMM_WORLD);
+    }
+
+    if (dir != MPI_PROC_NULL) {
+      // Receber o que é processado pelo "vizinho da direita"
+      MPI_Recv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 2, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+      // Envia o último que consigo processar
+      MPI_Send(&bar[bar_size], 1, MPI_FLOAT, dir, 3, MPI_COMM_WORLD);
+    }
+  }
+}
+
+double simulate_send_recv(int steps, int local_bar_size, int rank,
+                          int world_size) {
+  // Inicialização também não entra no tempo de execução.
+  float *t1 = init(local_bar_size + 2, rank);
+  float *t2 = init(local_bar_size + 2, rank);
+
+  // Vizinho esquerdo
+  int v_esq = rank == 0 ? MPI_PROC_NULL : rank - 1;
+  // Vizinho direito
+  int v_dir = rank == world_size - 1 ? MPI_PROC_NULL : rank + 1;
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  printf("Iniciando processamento de %d passos no processo %d .\n", steps,
+         rank);
+
+  // Como vou compilar com o mpicc de qualquer modo, aproveito pra usar a função
+  // dele.
+  double start = MPI_Wtime();
+
+  for (int step = 0; step < steps; step++) {
+    // Comunica a ponta de cada processo
+    communicate(rank, v_esq, v_dir, t1, local_bar_size);
+
+    // Processa 1 step
+    apply_one_step(t1, t2, local_bar_size);
+
+    swap(&t1, &t2);
+
+    if (rank == 0) {
+      t1[0] = 100.0;
+    }
+  }
+  double elapsed = MPI_Wtime() - start;
+
+  // Liberação de memória não entra no tempo de execução.
+  free(t1);
+  free(t2);
+
+  return elapsed;
+}
+
+int main(int argc, char **argv) {
+  MPI_Init(&argc, &argv);
+
+  int rank, size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+  if (size < 2) {
+    if (rank == 0) {
+      printf("Utilize pelo menos 2 processos MPI para rodar esse programa.\n");
+    }
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
+
+  int bar_size = 1e8;
+  int bar_per_process = bar_size / size;
+
+  int steps = 500;
+
+  if (rank == 0) {
+    printf("Simulando difusao de calor na barra 1D...\n");
+    printf("Tamanho global: %d pontos | Processos: %d | Passos: %d\n", bar_size,
+           size, steps);
+    printf("----------------------------------------------------------\n");
+  }
+
+  double elapsed = simulate_send_recv(steps, bar_per_process, rank, size);
+
+  if (rank == 0) {
+    printf(
+        "Processamento finalizado de %d iterações... tempo de execução: %f\n",
+        steps, elapsed);
+  }
+
+  MPI_Finalize();
+
+  return 0;
+}
+```
+
+== Versão com Isend e Irecv
+
+```c
+#include "mpi.h"
+#include "util.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+void apply_one_step(float *t1, float *t2, int size) {
+  for (int i = 1; i <= size; i++) {
+    t2[i] = atualizar_ponto(t1, i);
+  }
+}
+
+void communicate(int rank, int esq, int dir, float *bar, int bar_size) {
+  // Criamos um vetor para rastrear até 4 requisições (2 envios + 2
+  // recebimentos)
+  MPI_Request reqs[4];
+  int req_count = 0;
+
+  // Postar os recebimentos
+  if (esq != MPI_PROC_NULL) {
+    MPI_Irecv(&bar[0], 1, MPI_FLOAT, esq, 0, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+  if (dir != MPI_PROC_NULL) {
+    MPI_Irecv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 1, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+
+  // Postar os envios
+  if (esq != MPI_PROC_NULL) {
+    MPI_Isend(&bar[1], 1, MPI_FLOAT, esq, 1, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+  if (dir != MPI_PROC_NULL) {
+    MPI_Isend(&bar[bar_size], 1, MPI_FLOAT, dir, 0, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+
+  // Sincroniza
+  MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+}
+
+double simulate_isend_irecv(int steps, int local_bar_size, int rank,
+                            int world_size) {
+  // Inicialização também não entra no tempo de execução.
+  float *t1 = init(local_bar_size + 2, rank);
+  float *t2 = init(local_bar_size + 2, rank);
+
+  // Vizinho esquerdo
+  int v_esq = rank == 0 ? MPI_PROC_NULL : rank - 1;
+  // Vizinho direito
+  int v_dir = rank == world_size - 1 ? MPI_PROC_NULL : rank + 1;
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  printf("Iniciando processamento de %d passos no processo %d .\n", steps,
+         rank);
+
+  // Como vou compilar com o mpicc de qualquer modo, aproveito pra usar a função
+  // dele.
+  double start = MPI_Wtime();
+
+  for (int step = 0; step < steps; step++) {
+    // Comunica a ponta de cada processo
+    communicate(rank, v_esq, v_dir, t1, local_bar_size);
+
+    // Processa 1 step
+    apply_one_step(t1, t2, local_bar_size);
+
+    swap(&t1, &t2);
+
+    if (rank == 0) {
+      t1[0] = 100.0;
+    }
+  }
+  double elapsed = MPI_Wtime() - start;
+
+  // Liberação de memória não entra no tempo de execução.
+  free(t1);
+  free(t2);
+
+  return elapsed;
+}
+
+int main(int argc, char **argv) {
+  MPI_Init(&argc, &argv);
+
+  int rank, size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+  if (size < 2) {
+    if (rank == 0) {
+      printf("Utilize pelo menos 2 processos MPI para rodar esse programa.\n");
+    }
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
+
+  int bar_size = 1e8;
+  int bar_per_process = bar_size / size;
+
+  int steps = 500;
+
+  if (rank == 0) {
+    printf("Simulando difusao de calor na barra 1D...\n");
+    printf("Tamanho global: %d pontos | Processos: %d | Passos: %d\n", bar_size,
+           size, steps);
+    printf("----------------------------------------------------------\n");
+  }
+
+  double elapsed = simulate_isend_irecv(steps, bar_per_process, rank, size);
+
+  if (rank == 0) {
+    printf(
+        "Processamento finalizado de %d iterações... tempo de execução: %f\n",
+        steps, elapsed);
+  }
+
+  MPI_Finalize();
+
+  return 0;
+}
+```
+
+== Versão com Isend e Irecv + Test
+
+```c
+#include "mpi.h"
+#include "util.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+void apply_one_step(float *t1, float *t2, int size) {
+  for (int i = 1; i <= size; i++) {
+    t2[i] = atualizar_ponto(t1, i);
+  }
+}
+
+int communicate(int rank, int esq, int dir, float *bar, int bar_size,
+                MPI_Request *reqs) {
+  int req_count = 0;
+
+  if (esq != MPI_PROC_NULL) {
+    MPI_Irecv(&bar[0], 1, MPI_FLOAT, esq, 0, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+    MPI_Isend(&bar[1], 1, MPI_FLOAT, esq, 1, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+
+  if (dir != MPI_PROC_NULL) {
+    MPI_Irecv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 1, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+    MPI_Isend(&bar[bar_size], 1, MPI_FLOAT, dir, 0, MPI_COMM_WORLD,
+              &reqs[req_count++]);
+  }
+
+  return req_count;
+}
+
+double simulate_isend_irecv(int steps, int local_bar_size, int rank,
+                            int world_size) {
+  // Inicialização também não entra no tempo de execução.
+  float *t1 = init(local_bar_size + 2, rank);
+  float *t2 = init(local_bar_size + 2, rank);
+
+  // Vizinho esquerdo
+  int v_esq = rank == 0 ? MPI_PROC_NULL : rank - 1;
+  // Vizinho direito
+  int v_dir = rank == world_size - 1 ? MPI_PROC_NULL : rank + 1;
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  printf("Iniciando processamento de %d passos no processo %d .\n", steps,
+         rank);
+
+  // Como vou compilar com o mpicc de qualquer modo, aproveito pra usar a função
+  // dele.
+  double start = MPI_Wtime();
+  for (int step = 0; step < steps; step++) {
+    MPI_Request reqs[4];
+
+    int req_count = communicate(rank, v_esq, v_dir, t1, local_bar_size, reqs);
+
+    int comm_concluida = 0;
+    int i = 2;
+
+    while (i <= local_bar_size - 1) {
+      for (int bloco = 0; bloco < 64 && i <= local_bar_size - 1; bloco++, i++) {
+        t2[i] = atualizar_ponto(t1, i);
+      }
+
+      if (!comm_concluida) {
+        MPI_Testall(req_count, reqs, &comm_concluida, MPI_STATUSES_IGNORE);
+      }
+    }
+
+    if (!comm_concluida) {
+      MPI_Waitall(req_count, reqs, MPI_STATUSES_IGNORE);
+    }
+
+    t2[1] = atualizar_ponto(t1, 1);
+
+    if (local_bar_size > 1) {
+      t2[local_bar_size] = atualizar_ponto(t1, local_bar_size);
+    }
+
+    swap(&t1, &t2);
+
+    if (rank == 0) {
+      t1[0] = 100.0;
+    }
+  }
+
+  double elapsed = MPI_Wtime() - start;
+
+  // Liberação de memória não entra no tempo de execução.
+  free(t1);
+  free(t2);
+
+  return elapsed;
+}
+
+int main(int argc, char **argv) {
+  MPI_Init(&argc, &argv);
+
+  int rank, size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+  if (size < 2) {
+    if (rank == 0) {
+      printf("Utilize pelo menos 2 processos MPI para rodar esse programa.\n");
+    }
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
+
+  int bar_size = 1e8;
+  int bar_per_process = bar_size / size;
+
+  int steps = 500;
+
+  if (rank == 0) {
+    printf("Simulando difusao de calor na barra 1D...\n");
+    printf("Tamanho global: %d pontos | Processos: %d | Passos: %d\n", bar_size,
+           size, steps);
+    printf("----------------------------------------------------------\n");
+  }
+
+  double elapsed = simulate_isend_irecv(steps, bar_per_process, rank, size);
+
+  if (rank == 0) {
+    printf(
+        "Processamento finalizado de %d iterações... tempo de execução: %f\n",
+        steps, elapsed);
+  }
+
+  MPI_Finalize();
+
+  return 0;
+}
+```
+
+== Funções utilitárias
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+float atualizar_ponto(float *arr, int i) {
+  return arr[i] + (0.4 * (arr[i - 1] - (2 * arr[i]) + arr[i + 1]));
+}
+
+void print_arr(float *arr, int size) {
+  if (size == 0) {
+    printf("[]\n");
+  }
+
+  printf("[");
+
+  for (int i = 0; i < size - 1; i++) {
+    printf("%f, ", arr[i]);
+  }
+
+  printf("%f]\n", arr[size - 1]);
+}
+
+float *init(int size, int rank) {
+  float *arr = (float *)malloc(size * sizeof(float));
+
+  for (int i = 0; i < size; i++) {
+    arr[i] = 0.0;
+  }
+
+  if (rank == 0) {
+    arr[0] = 100.0;
+  }
+
+  return arr;
+}
+
+void swap(float **t1, float **t2) {
+  float *TEMP = *t1;
+  *t1 = *t2;
+  *t2 = TEMP;
+}
+```

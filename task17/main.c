@@ -35,7 +35,6 @@ int main(int argc, char **argv) {
 
   int local_M = M / size;
 
-  // Alocação de memória
   x = (double *)malloc(N * sizeof(double));
   local_A = (double *)malloc(local_M * N * sizeof(double));
   local_y = (double *)malloc(local_M * sizeof(double));
@@ -78,6 +77,14 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     printf("Tempo: %f s | Processos: %d | Matriz: %dx%d\n", max_time, size, M,
            N);
+
+    FILE *fp = fopen("resultados.csv", "a");
+    if (fp != NULL) {
+      fprintf(fp, "%d,%d,%d,%f\n", size, M, N, max_time);
+      fclose(fp);
+    } else {
+      printf("Erro ao abrir o arquivo resultados.csv\n");
+    }
 
     free(A);
     free(y);

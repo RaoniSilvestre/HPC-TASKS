@@ -41,7 +41,7 @@ void communicate(int rank, int esq, int dir, float *bar, int bar_size) {
     if (dir != MPI_PROC_NULL) {
       // Receber o que é processado pelo "vizinho da direita"
       MPI_Recv(&bar[bar_size + 1], 1, MPI_FLOAT, dir, 2, MPI_COMM_WORLD,
-               MPI_STATUSES_IGNORE);
+               MPI_STATUS_IGNORE);
       // Envia o último que consigo processar
       MPI_Send(&bar[bar_size], 1, MPI_FLOAT, dir, 3, MPI_COMM_WORLD);
     }

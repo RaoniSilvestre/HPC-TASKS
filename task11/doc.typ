@@ -78,7 +78,7 @@ void calcular_proximo_passo(const Grid2D u_current, const Grid2D u_next,
   const float idx2 = 1.0f / (dx * dx);
   const float idy2 = 1.0f / (dy * dy);
 
-#pragma omp parallel for collapse(2) schedule(static, 16)
+#pragma omp parallel for
   for (int i = 1; i < nx - 1; i++) {
     for (int j = 1; j < ny - 1; j++) {
       const float laplaciano =

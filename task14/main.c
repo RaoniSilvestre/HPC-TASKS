@@ -105,8 +105,8 @@ int main(int argc, char **argv) {
     fprintf(arquivo_csv, "Metodo,Tamanho_Bytes,Tempo_Segundos,Banda_MBs\n");
   }
 
-  const int TAMANHO_MAXIMO = 1048576;
-  const int ITERACOES = 10000;
+  const int TAMANHO_MAXIMO = 1e8;
+  const int ITERACOES = 100;
 
   executar_ping_pong(rank, "MPI_Send", TAMANHO_MAXIMO, ITERACOES, arquivo_csv);
   executar_ping_pong(rank, "MPI_Ssend", TAMANHO_MAXIMO, ITERACOES, arquivo_csv);

@@ -27,7 +27,7 @@ float *init(int size, int rank) {
   }
 
   if (rank == 0) {
-    arr[0] = 1000.0;
+    arr[0] = 100.0;
   }
 
   return arr;

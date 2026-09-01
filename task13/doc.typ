@@ -1,37 +1,52 @@
 #import "../template.typ": projeto
-
 #set heading(numbering: "I. ")
-
 #import "@preview/cetz:0.5.2"
 #import "@preview/cetz-plot:0.1.4": plot
 
-#show: projeto.with(titulo: "Analise de escalabilidade do problema Navier-Stokes")
+#show: projeto.with(titulo: "Avaliação de Afinidades de Threads no Solver Navier-Stokes")
 
-Para essa atividade, utilizei o nó de computação do NPAD amd-512 para realizar os testes. O código utilizado foi basicamente igual ao da atividade 11, com a diferença que a quantidade
-de threads foi definida dinamicamente dentro do programa em vez de ser fixo. Dessa forma apenas uma execução no NPAD foi o suficiente para fazer uma análise da escalabilidade do programa.
+= Introdução
 
-Para os testes, foi variado o tamanho do grid, variando entre 1024x1024 ate 8192, e a quantidade de threads tambem foi variado entre 1 e 256 (total do amd-512).
+A forma como as threads são mapeadas aos núcleos do processador pode impactar
+significativamente o desempenho de aplicações paralelas. Nesta tarefa, avaliamos
+como a escalabilidade do solver Navier-Stokes se comporta sob diferentes configurações de afinidade de threads
+suportadas pelo OpenMP e pelo sistema operacional no mesmo nó de computação do
+NPAD.
 
-#let raw_data = csv("resultados.csv").slice(1)
-#let grouped = (:)
+Como o uso de `OMP_PROC_BIND=false` delega o controle de afinidade totalmente
+ao sistema operacional, invalidando as diretivas de `OMP_PLACES`, os testes
+foram focados em três cenários distintos para uma comparação justa:
 
-// Processa e agrupa por tamanho de grid
-#for row in raw_data {
-  let nx = str(row.at(0))
-  let tempo = float(row.at(3))
-  let th = float(row.at(4))
+- *Baseline (Sem afinidade)*: `OMP_PROC_BIND=false`
+- *Afinidade por Núcleo Físico*: `OMP_PLACES=cores` com `OMP_PROC_BIND=true`
+- *Afinidade por Thread Lógica (SMT)*: `OMP_PLACES=threads` com `OMP_PROC_BIND=true`
 
-  let arr = grouped.at(nx, default: ())
-  arr.push((th, tempo))
-  grouped.insert(nx, arr)
-}
+#pagebreak()
 
-// Ordena pelos valores das threads
-#for k in grouped.keys() {
-  grouped.insert(k, grouped.at(k).sorted(key: x => x.at(0)))
-}
+= Metodologia
 
-#let cores = (blue, red, green, orange)
+Os testes foram executados no nó #text(blue)[amd-512] do NPAD, que possui 256
+núcleos (512 threads lógicas com SMT). O código utilizado foi o solver
+Navier-Stokes, paralelizado com OpenMP.
+
+Para cada configuração, foram variados:
+
+- *Tamanho do grid*: 1024×1024, 2048×2048, 4096×4096 e 8192×8192
+- *Quantidade de threads*: 1, 2, 4, 8, 16, 32, 64, 128 e 256
+- *Passos temporais*: 5000 para todas as execuções
+
+Ao todo, cada configuração gerou 36 execuções (4 grids × 9 contagens de threads).
+Para a representação da baseline (`BIND=false`), utilizou-se o conjunto de dados
+gerado pela execução padrão livre.
+
+= Resultados
+
+== Desempenho por Configuração de Afinidade
+
+Abaixo são apresentados os gráficos de tempo de execução em função do número de
+threads para cada um dos três cenários.
+
+#let cores_palette = (blue, red, green, orange)
 #let ticks_threads = (
   (1, [1]),
   (2, [2]),
@@ -44,61 +59,150 @@ Para os testes, foi variado o tamanho do grid, variando entre 1024x1024 ate 8192
   (256, [256]),
 )
 
-= Todos os dados
+#let load_and_group(file) = {
+  let raw = csv(file).slice(1)
+  let grouped = (:)
+  for row in raw {
+    let nx = str(row.at(0))
+    let tempo = float(row.at(4))
+    let th = float(row.at(5))
+    let arr = grouped.at(nx, default: ())
+    arr.push((th, tempo))
+    grouped.insert(nx, arr)
+  }
+  for k in grouped.keys() {
+    grouped.insert(k, grouped.at(k).sorted(key: x => x.at(0)))
+  }
+  grouped
+}
+
+#let make_plot(data, title, color_offset: 0) = {
+  align(center)[
+    #text(9pt, weight: "bold")[#title]
+    #cetz.canvas({
+      plot.plot(
+        size: (10, 6.5),
+        x-label: [Threads],
+        y-label: [Tempo (s)],
+        legend: "inner-north-east",
+        x-mode: "log",
+        x-ticks: ticks_threads,
+        {
+          let i = color_offset
+          for nx in data.keys().sorted(key: k => int(k)) {
+            plot.add(
+              data.at(nx),
+              label: nx + " x " + nx,
+              style: (stroke: cores_palette.at(calc.rem(i, 4)) + 1.5pt),
+              mark: "o",
+            )
+            i += 1
+          }
+        },
+      )
+    })
+  ]
+}
+
+#let base = load_and_group("resultados_OMP_PLACES_cores_OMP_PROC_BIND_false.csv")
+#let ct = load_and_group("resultados_OMP_PLACES_cores_OMP_PROC_BIND_true.csv")
+#let tt = load_and_group("resultados_OMP_PLACES_threads_OMP_PROC_BIND_true.csv")
+
+#make_plot(base, "Baseline Livre (OMP_PROC_BIND=false)")
+#make_plot(ct, "OMP_PLACES=cores, OMP_PROC_BIND=true", color_offset: 1)
+#make_plot(tt, "OMP_PLACES=threads, OMP_PROC_BIND=true", color_offset: 3)
+
+#pagebreak()
+
+== Comparação entre Afinidades para o Grid 8192×8192
+
+Para facilitar a comparação direta, o gráfico a seguir sobrepõe as três
+estratégias para o maior grid testado (8192×8192).
+
 #align(center)[
+  #text(9pt, weight: "bold")[Comparação de Afinidade — Grid 8192×8192]
   #cetz.canvas({
     plot.plot(
-      size: (12, 8),
+      size: (10, 6.5),
       x-label: [Threads],
       y-label: [Tempo (s)],
       legend: "inner-north-east",
       x-mode: "log",
       x-ticks: ticks_threads,
       {
-        let i = 0
-        for nx in grouped.keys().sorted(key: k => int(k)) {
-          plot.add(
-            grouped.at(nx),
-            label: nx + " x " + nx,
-            style: (stroke: cores.at(calc.rem(i, 4)) + 1.5pt),
-            mark: "o",
-          )
-          i += 1
-        }
+        plot.add(base.at("8192"), style: (stroke: blue + 1.5pt), mark: "o", label: "Baseline (Livre)")
+        plot.add(ct.at("8192"), style: (stroke: red + 1.5pt), mark: "square", label: "cores, true")
+        plot.add(tt.at("8192"), style: (stroke: orange + 1.5pt), mark: "triangle", label: "threads, true")
       },
     )
   })
 ]
 
-= Sem o Outlier (8192x8192)
-#align(center)[
-  #cetz.canvas({
-    plot.plot(
-      size: (12, 8),
-      x-label: [Threads],
-      y-label: [Tempo (s)],
-      legend: "inner-north-east",
-      x-mode: "log",
-      x-ticks: ticks_threads,
-      {
-        let i = 0
-        for nx in grouped.keys().sorted(key: k => int(k)) {
-          // Filtra o outlier, mas mantém a ordem do contador de cores
-          // para as linhas restantes terem exatamente as mesmas cores do gráfico de cima
-          if nx != "8192" {
-            plot.add(
-              grouped.at(nx),
-              label: nx + " x " + nx,
-              style: (stroke: cores.at(calc.rem(i, 4)) + 1.5pt),
-              mark: "o",
-            )
-          }
-          i += 1
+Observa-se que, para até 128 threads, o escalonador padrão do sistema
+operacional (Baseline) lida de forma extremamente eficiente com a distribuição de
+carga. A curva começa a apresentar diferenças notáveis no limite de 256 threads,
+onde a arquitetura SMT (Simultaneous Multi-Threading) passa a ter contenção severa.
+
+Neste cenário extremo (256 threads), a configuração `OMP_PLACES=cores` com
+`OMP_PROC_BIND=true` tem uma grave degradação (99 s). Em contrapartida,
+`OMP_PLACES=threads` com `OMP_PROC_BIND=true` obteve o melhor tempo (18,4 s).
+
+#pagebreak()
+
+= Análise de Speedup
+
+A tabela abaixo apresenta o speedup $S = T(1) / T(p)$ para o grid 8192×8192.
+O tempo de execução sequencial (1 thread) é virtualmente idêntico nas três
+situações (~155 s).
+
+#let speedup_table(configs, grid) = {
+  let rows = ()
+  for th in (1, 2, 4, 8, 16, 32, 64, 128, 256) {
+    let row = (str(th),)
+    for data in configs {
+      let pts = data.at(grid)
+      let t1 = float(pts.at(0).at(1))
+      let tn = (:)
+      for pt in pts {
+        if pt.at(0) == th {
+          tn = pt
         }
-      },
-    )
-  })
-]
+      }
+      if tn.len() > 0 {
+        let sp = t1 / float(tn.at(1))
+        row.push(str(calc.round(sp, digits: 2)))
+      }
+    }
+    rows.push(row)
+  }
+  table(
+    columns: 4,
+    stroke: 0.5pt,
+    [Threads], [Baseline (Livre)], [cores, true], [threads, true],
+    ..rows.flatten(),
+  )
+}
+
+#speedup_table((base, ct, tt), "8192")
+
+= Conclusão
+
+A escolha da afinidade de threads demonstrou impacto crítico no desempenho do
+solver Navier-Stokes, especialmente em alta concorrência em uma arquitetura NUMA
+complexa como a do nó #text(blue)[amd-512].
+
+As principais observações físicas e arquiteturais incluem:
+
+- *A Eficiência do Escalonador do SO*: Para até 128 threads (usando 1/4 da capacidade lógica da máquina), o `OMP_PROC_BIND=false` foi muito competitivo (alcançando Speedup de ~18×). Como o nó não estava saturado, o escalonador do Linux conseguiu distribuir as threads eficientemente sem grande penalidade de migração.
+- *Gargalo de Memória e SMT*: O solver Navier-Stokes é uma aplicação "memory-bound". Em 256 threads, permitir a migração livre de threads (`false`) prejudica a localidade de cache, pois threads re-escalonadas precisam buscar dados iterativamente da RAM, aumentando as requisições na memória principal (cache misses).
+- *Contenção em Granularidade de Núcleo*: A configuração `PLACES=cores, BIND=true` falhou severamente com 256 threads. Ao fixar a granularidade em núcleos físicos sem espalhamento lógico, o SMT pode não ter sido balanceado corretamente, gerando gargalos no barramento.
+- *Localidade Forçada*: A configuração `PLACES=threads, BIND=true` extraiu o desempenho ótimo em 256 threads (18,4 s). Ao fixar as threads nos núcleos lógicos (nível SMT), o OpenMP assegura que cada bloco do grid permaneça no mesmo Cache L1/L2 durante toda a execução.
+
+Recomenda-se o uso do escalonador livre (`BIND=false`) para cargas médias e a
+fixação severa (`PLACES=threads, BIND=true`) para extrair o máximo do hardware em
+regimes de alta saturação paralela.
+
+#pagebreak()
 
 = Anexo
 
